@@ -1,10 +1,16 @@
 name: luminism
 description: >-
-  Surfaces lit by one shared light that drifts, follows the phone's tilt and
-  answers touch. Two materials: Luminism, which glows from within, and
-  Prism-bend, whose edges split the light into a spectrum.
+  Surfaces lit by one shared light that drifts and follows the phone as it
+  turns. Luminism glows from within; Prism-bend splits the light into a
+  spectrum.
 version: 0.1.0
 repository: https://github.com/RitickSaha/luminism
+issue_tracker: https://github.com/RitickSaha/luminism/issues
+screenshots:
+  - description: Luminism and Prism-bend in dark and light themes as the light drifts.
+    path: screenshots/light.webp
+  - description: The example app in Luminism and Prism-bend, dark and light.
+    path: screenshots/overview.png
 topics:
   - ui
   - design

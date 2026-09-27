@@ -16,6 +16,9 @@ import 'tilt.dart';
 /// to find a hovering mouse, and set [tilt] to steer the light by hand (for
 /// simulators, demos and tests). A [LuminismLight] drives the controller.
 class LuminismLightController extends ChangeNotifier {
+  /// Creates a controller. Pass it to a [LuminismLight] to drive it.
+  LuminismLightController();
+
   Offset _position = Offset.zero;
   Offset _tiltTarget = Offset.zero;
   Offset _tilt = Offset.zero;
