@@ -24,6 +24,21 @@ room, and four things move it:
 
 With "reduce motion" on, the light rests at the top of the screen.
 
+## Platform setup
+
+**iOS**: the motion sensors need a usage description, or the app crashes
+when it starts reading them. Add this to `ios/Runner/Info.plist`:
+
+```xml
+<key>NSMotionUsageDescription</key>
+<string>Tilting your phone moves the light across the screen.</string>
+```
+
+**Android**: nothing to add.
+
+If you'd rather not use the sensors, pass `sensors: false` to
+`LuminismLight`; the light still drifts, scrolls and answers touch.
+
 ## Usage
 
 Put one light over your app:
