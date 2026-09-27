@@ -1,0 +1,27 @@
+name: luminism
+description: >-
+  Surfaces lit by one shared light that drifts, follows the phone's tilt and
+  answers touch. Two materials: Luminism, which glows from within, and
+  Prism-bend, whose edges split the light into a spectrum.
+version: 0.1.0
+repository: https://github.com/RitickSaha/luminism
+topics:
+  - ui
+  - design
+  - animation
+  - gyroscope
+  - widget
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+  flutter: ">=3.24.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  sensors_plus: ^7.0.0
+
+dev_dependencies:
+  flutter_lints: ^5.0.0
+  flutter_test:
+    sdk: flutter

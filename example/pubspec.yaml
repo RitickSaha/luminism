@@ -1,0 +1,29 @@
+name: luminism_example
+description: Demo of the Luminism and Prism-bend styles.
+publish_to: none
+version: 1.0.0
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  luminism:
+    path: ../
+
+dev_dependencies:
+  flutter_lints: ^5.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+  fonts:
+    - family: Figtree
+      fonts:
+        - asset: fonts/Figtree-400.ttf
+        - asset: fonts/Figtree-600.ttf
+          weight: 600
+        - asset: fonts/Figtree-800.ttf
+          weight: 800
