@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:luminism/luminism.dart';
@@ -125,7 +126,7 @@ void main() {
       expect(light.tilt, const Offset(1, -1), reason: 'tilt is clamped');
     });
 
-    testWidgets('pressing a surface lends it the light', (tester) async {
+    testWidgets('touching a surface does not move the light', (tester) async {
       final LuminismLightController light = LuminismLightController();
       await tester.pumpWidget(_app(
         controller: light,
@@ -137,39 +138,123 @@ void main() {
       ));
       await tester.pump(const Duration(milliseconds: 16));
       final Offset rest = light.position;
-      final Offset finger = tester.getBottomRight(find.byType(LuminSurface)) -
-          const Offset(10, 10);
-
-      final TestGesture gesture = await tester.startGesture(finger);
-      for (int i = 0; i < 30; i++) {
-        await tester.pump(const Duration(milliseconds: 16));
-      }
-      expect(light.isPressed, isTrue);
-      expect((light.position - finger).distance, lessThan(2));
-
+      final TestGesture gesture = await tester.startGesture(
+          tester.getBottomRight(find.byType(LuminSurface)) -
+              const Offset(8, 8));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(light.position, rest);
       await gesture.up();
-      for (int i = 0; i < 90; i++) {
+    });
+  });
+
+  group('pointer', () {
+    testWidgets('a hovering mouse leads the light, then lets go',
+        (tester) async {
+      final LuminismLightController light = LuminismLightController();
+      await tester.pumpWidget(
+          _app(controller: light, drift: false, child: const SizedBox()));
+      await tester.pump(const Duration(milliseconds: 16));
+      final Offset rest = light.position;
+
+      final TestGesture mouse =
+          await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: const Offset(700, 500));
+      await mouse.moveTo(const Offset(700, 500));
+      for (int i = 0; i < 40; i++) {
         await tester.pump(const Duration(milliseconds: 16));
       }
-      expect(light.isPressed, isFalse);
+      expect((light.position - const Offset(700, 500)).distance, lessThan(2));
+
+      await mouse.removePointer();
+      for (int i = 0; i < 150; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
       expect((light.position - rest).distance, lessThan(2));
     });
 
-    testWidgets('a drag is not a press', (tester) async {
+    testWidgets('can be turned off', (tester) async {
       final LuminismLightController light = LuminismLightController();
-      await tester.pumpWidget(_app(
-        controller: light,
-        drift: false,
-        child: const PrismBendSurface(child: SizedBox(width: 200, height: 100)),
+      await tester.pumpWidget(MaterialApp(
+        builder: (context, app) => LuminismLight(
+          controller: light,
+          drift: false,
+          followPointer: false,
+          child: app!,
+        ),
+        home: const SizedBox(),
       ));
-      final Offset start = tester.getCenter(find.byType(PrismBendSurface));
-      final TestGesture gesture = await tester.startGesture(start);
+      await tester.pump(const Duration(milliseconds: 16));
+      final Offset rest = light.position;
+      final TestGesture mouse =
+          await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: const Offset(700, 500));
+      await mouse.moveTo(const Offset(700, 500));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(light.position, rest);
+      await mouse.removePointer();
+    });
+  });
+
+  group('switches', () {
+    for (final Brightness b in Brightness.values) {
+      testWidgets('toggle on tap in $b', (tester) async {
+        bool lumin = false;
+        bool prism = true;
+        await tester.pumpWidget(_app(
+          brightness: b,
+          child: StatefulBuilder(
+            builder: (context, setState) => Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                LuminSwitch(
+                    value: lumin, onChanged: (v) => setState(() => lumin = v)),
+                PrismBendSwitch(
+                    value: prism, onChanged: (v) => setState(() => prism = v)),
+              ],
+            ),
+          ),
+        ));
+        await tester.tap(find.byType(LuminSwitch));
+        await tester.tap(find.byType(PrismBendSwitch));
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(lumin, isTrue);
+        expect(prism, isFalse);
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    testWidgets('does nothing when disabled', (tester) async {
+      await tester.pumpWidget(_app(
+        child: const LuminSwitch(value: false, onChanged: null),
+      ));
+      await tester.tap(find.byType(LuminSwitch));
       await tester.pump();
-      expect(light.isPressed, isTrue);
-      await gesture.moveBy(const Offset(0, 40));
-      await tester.pump();
-      expect(light.isPressed, isFalse);
-      await gesture.up();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('tells screen readers whether it is on', (tester) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.pumpWidget(_app(
+        child: PrismBendSwitch(value: true, onChanged: (_) {}),
+      ));
+      expect(
+        tester.getSemantics(find.byType(PrismBendSwitch)),
+        matchesSemantics(
+          hasToggledState: true,
+          isToggled: true,
+          hasEnabledState: true,
+          isEnabled: true,
+          hasTapAction: true,
+        ),
+      );
+      handle.dispose();
+    });
+
+    testWidgets('is a 48 by 48 touch target', (tester) async {
+      await tester.pumpWidget(_app(
+        child: LuminSwitch(value: true, onChanged: (_) {}),
+      ));
+      expect(tester.getSize(find.byType(LuminSwitch)), const Size(48, 48));
     });
   });
 

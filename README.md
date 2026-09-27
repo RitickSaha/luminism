@@ -1,26 +1,27 @@
 # Luminism
 
-Surfaces lit by one shared light that drifts, follows the phone's tilt and
-answers touch. Two materials share the light:
+Surfaces lit by one shared light that drifts and follows the phone's tilt.
+Two materials share the light:
 
 - **Luminism**: surfaces glow from within, brightest toward the light, and
   cast their own color instead of grey shadows.
 - **Prism-bend**: calm, clear surfaces whose edges split the light into a
   soft spectrum on the side facing the light.
 
-Both come in light and dark versions and follow your app's theme.
+Each material comes with a surface and a matching switch, in light and dark
+versions that follow your app's theme.
 
 ## How the light moves
 
-Phones have no hover. The light sits above the screen, like a lamp in the
-room, and four things move it:
+The light sits above the screen, like a lamp in the room, and these move
+it:
 
 | Input | What happens |
 | --- | --- |
 | Drift | The light moves slowly on its own, like a phone held in the hand. |
 | Tilt | The motion sensors steer the light, smoothed so it never jitters. |
 | Scroll | Surfaces travel under the light, so their glow and edges shift. |
-| Touch | Pressing a surface pulls the light to the finger, then it drifts back. |
+| Mouse and trackpad | On desktop and the web, a hovering pointer leads the light. Touch never moves it. |
 
 With "reduce motion" on, the light rests at the top of the screen.
 
@@ -37,7 +38,7 @@ when it starts reading them. Add this to `ios/Runner/Info.plist`:
 **Android**: nothing to add.
 
 If you'd rather not use the sensors, pass `sensors: false` to
-`LuminismLight`; the light still drifts, scrolls and answers touch.
+`LuminismLight`; the light still drifts and moves with scroll.
 
 ## Usage
 
@@ -69,6 +70,18 @@ LuminSurface(
 PrismBendSurface(child: const Text('7h 40m'))
 ```
 
+Each material has a switch lit by the same light:
+
+```dart
+LuminSwitch(value: quiet, onChanged: (v) => setState(() => quiet = v))
+PrismBendSwitch(value: quiet, onChanged: (v) => setState(() => quiet = v))
+```
+
+`LuminSwitch` glows in its `color` (mint by default) when on.
+`PrismBendSwitch` fills with a spectrum that turns to face the light. Both
+are 48 × 48 touch targets, work with the keyboard, and tell screen readers
+whether they're on.
+
 ### Options
 
 | `LuminismLight` | Default | |
@@ -77,6 +90,7 @@ PrismBendSurface(child: const Text('7h 40m'))
 | `sensors` | `true` | Whether the motion sensors steer it. Used on Android, iOS and the web; never under `flutter test`. |
 | `driftSpeed`, `driftAmplitude` | `0.5`, `(0.32, 0.2)` | How fast and how far it drifts. |
 | `tiltStrength` | `(0.45, 0.35)` | How far a full tilt moves it. |
+| `followPointer` | `true` | Whether a hovering mouse or trackpad leads it. |
 | `controller` | | A `LuminismLightController` to read the light or steer it by hand. |
 
 Steer the light yourself, for example on a simulator without a gyroscope:
@@ -98,4 +112,4 @@ The light only repaints the surfaces' backgrounds: their content sits in a
 ## Example
 
 `example/` is a phone demo with both materials, light and dark themes, and
-a tilt pad for simulators.
+a tilt pad for simulators. It runs on Android, iOS, the web and macOS.

@@ -15,11 +15,13 @@ void main() {
     await tester.pumpWidget(const LuminismDemoApp(sensors: false));
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.byType(LuminSurface), findsWidgets);
+    expect(find.byType(LuminSwitch), findsOneWidget);
     expect(find.byType(PrismBendSurface), findsNothing);
 
     await tester.tap(find.text('Prism-bend'));
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.byType(PrismBendSurface), findsWidgets);
+    expect(find.byType(PrismBendSwitch), findsOneWidget);
     expect(find.byType(LuminSurface), findsNothing);
     expect(tester.takeException(), isNull);
   });

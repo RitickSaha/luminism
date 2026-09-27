@@ -240,7 +240,7 @@ class HomeScreen extends StatelessWidget {
                           Expanded(
                               child:
                                   Text('Quiet hours', style: text.titleMedium)),
-                          const _QuietSwitch(),
+                          _QuietSwitch(lumin: lumin),
                         ],
                       ),
                     ),
@@ -330,7 +330,10 @@ class _Stat extends StatelessWidget {
 }
 
 class _QuietSwitch extends StatefulWidget {
-  const _QuietSwitch();
+  const _QuietSwitch({required this.lumin});
+
+  /// Whether to use the Luminism switch rather than the Prism-bend one.
+  final bool lumin;
 
   @override
   State<_QuietSwitch> createState() => _QuietSwitchState();
@@ -339,14 +342,12 @@ class _QuietSwitch extends StatefulWidget {
 class _QuietSwitchState extends State<_QuietSwitch> {
   bool _on = true;
 
+  void _set(bool v) => setState(() => _on = v);
+
   @override
-  Widget build(BuildContext context) => Switch(
-        value: _on,
-        onChanged: (v) {
-          HapticFeedback.selectionClick();
-          setState(() => _on = v);
-        },
-      );
+  Widget build(BuildContext context) => widget.lumin
+      ? LuminSwitch(value: _on, onChanged: _set)
+      : PrismBendSwitch(value: _on, onChanged: _set);
 }
 
 /// Steers the light by hand, for simulators and emulators without a

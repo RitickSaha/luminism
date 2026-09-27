@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart' show PointerExitEvent, PointerHoverEvent;
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 import 'package:sensors_plus/sensors_plus.dart';
@@ -10,16 +11,16 @@ import 'platform_stub.dart' if (dart.library.io) 'platform_io.dart';
 
 /// The position of the light that every Luminism surface shares.
 ///
-/// Read [position] to find the light, set [tilt] to steer it by hand (for
-/// simulators, demos and tests), and call [press] and [release] to lend the
-/// light to a finger. A [LuminismLight] drives the controller.
+/// Read [position] to find the light, and set [tilt] to steer it by hand
+/// (for simulators, demos and tests). A [LuminismLight] drives the
+/// controller.
 class LuminismLightController extends ChangeNotifier {
   Offset _position = Offset.zero;
   Offset _tiltTarget = Offset.zero;
   Offset _tilt = Offset.zero;
-  Offset? _press;
-  Offset? _lastPress;
-  double _pressWeight = 0;
+  Offset? _hover;
+  Offset? _lastHover;
+  double _hoverWeight = 0;
   VoidCallback? _wake;
 
   /// Where the light is, in global (screen) coordinates.
@@ -40,24 +41,6 @@ class LuminismLightController extends ChangeNotifier {
     _wake?.call();
   }
 
-  /// Pulls the light toward [globalPosition], as when a finger presses a
-  /// surface.
-  void press(Offset globalPosition) {
-    _press = globalPosition;
-    _lastPress = globalPosition;
-    _wake?.call();
-  }
-
-  /// Lets the light drift back after a [press].
-  void release() {
-    if (_press == null) return;
-    _press = null;
-    _wake?.call();
-  }
-
-  /// Whether a finger is currently holding the light.
-  bool get isPressed => _press != null;
-
   void _setPosition(Offset value) {
     if ((value - _position).distanceSquared < 0.0001) return;
     _position = value;
@@ -69,9 +52,10 @@ class LuminismLightController extends ChangeNotifier {
 /// light source.
 ///
 /// The light sits above the screen and drifts slowly on its own, like a
-/// phone held in the hand. Tilting the phone steers it, and pressing a
-/// surface briefly pulls it to the finger. With "reduce motion" on, the
-/// light rests near the top of the screen.
+/// phone held in the hand, and tilting the phone steers it. Surfaces move
+/// under it as they scroll. On desktop and the web, a mouse or trackpad
+/// leads the light while it hovers; fingers never move it. With "reduce
+/// motion" on, the light rests near the top of the screen.
 ///
 /// Place it inside your app so it covers every screen:
 ///
@@ -91,6 +75,7 @@ class LuminismLight extends StatefulWidget {
     this.driftSpeed = 0.5,
     this.driftAmplitude = const Offset(0.32, 0.2),
     this.tiltStrength = const Offset(0.45, 0.35),
+    this.followPointer = true,
   });
 
   /// The subtree the light shines on.
@@ -118,6 +103,11 @@ class LuminismLight extends StatefulWidget {
   /// How far a full tilt moves the light, as a fraction of the screen's
   /// width and height.
   final Offset tiltStrength;
+
+  /// Whether a hovering mouse or trackpad leads the light.
+  ///
+  /// Only hover moves the light, so touch screens are never affected.
+  final bool followPointer;
 
   /// The closest light's controller, or null if there is none.
   static LuminismLightController? maybeOf(BuildContext context) =>
@@ -170,6 +160,7 @@ class _LuminismLightState extends State<LuminismLight>
       _controller._wake = _wake;
     }
     if (widget.sensors != oldWidget.sensors) _syncSensors();
+    if (!widget.followPointer) _controller._hover = null;
     _wake();
   }
 
@@ -239,11 +230,14 @@ class _LuminismLightState extends State<LuminismLight>
     final double k = _reduceMotion ? 1 : 1 - math.exp(-dt * 8);
     c._tilt += (c._tiltTarget - c._tilt) * k;
 
-    final double target = c._press != null ? 1 : 0;
-    final double pk =
-        _reduceMotion ? 1 : 1 - math.exp(-dt * (c._press != null ? 16 : 5));
-    c._pressWeight += (target - c._pressWeight) * pk;
-    if ((target - c._pressWeight).abs() < 0.001) c._pressWeight = target;
+    // A hovering pointer leads the light: quickly on arrival, gently on exit.
+    final double hoverTarget = c._hover != null ? 1 : 0;
+    final double hk =
+        _reduceMotion ? 1 : 1 - math.exp(-dt * (c._hover != null ? 10 : 3));
+    c._hoverWeight += (hoverTarget - c._hoverWeight) * hk;
+    if ((hoverTarget - c._hoverWeight).abs() < 0.001) {
+      c._hoverWeight = hoverTarget;
+    }
 
     final RenderObject? box = context.findRenderObject();
     if (box is RenderBox && box.hasSize && box.attached) {
@@ -257,22 +251,46 @@ class _LuminismLightState extends State<LuminismLight>
         size.width * (0.5 + driftX + widget.tiltStrength.dx * c._tilt.dx),
         size.height * (0.3 + driftY + widget.tiltStrength.dy * c._tilt.dy),
       ));
-      final Offset? pressed = c._lastPress;
-      if (pressed != null && c._pressWeight > 0) {
-        light = Offset.lerp(light, pressed, c._pressWeight)!;
+      final Offset? hover = c._hover ?? c._lastHover;
+      if (hover != null && c._hoverWeight > 0) {
+        light = Offset.lerp(light, hover, c._hoverWeight)!;
       }
       c._setPosition(light);
     }
 
     final bool settled = !drifting &&
         (c._tiltTarget - c._tilt).distanceSquared < 1e-6 &&
-        c._pressWeight == target;
+        c._hoverWeight == hoverTarget;
     if (settled) _ticker.stop();
   }
 
+  void _onHover(PointerHoverEvent e) {
+    _controller
+      .._hover = e.position
+      .._lastHover = e.position;
+    _wake();
+  }
+
+  void _onExit(PointerExitEvent e) {
+    _controller._hover = null;
+    _wake();
+  }
+
   @override
-  Widget build(BuildContext context) =>
-      _LightScope(controller: _controller, child: widget.child);
+  Widget build(BuildContext context) {
+    Widget child = _LightScope(controller: _controller, child: widget.child);
+    if (widget.followPointer) {
+      // Hover events come only from mice and trackpads, never from touch.
+      child = MouseRegion(
+        opaque: false,
+        hitTestBehavior: HitTestBehavior.translucent,
+        onHover: _onHover,
+        onExit: _onExit,
+        child: child,
+      );
+    }
+    return child;
+  }
 }
 
 class _LightScope extends InheritedWidget {
