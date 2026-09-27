@@ -19,7 +19,7 @@ it:
 | Input | What happens |
 | --- | --- |
 | Drift | The light moves slowly on its own, like a phone held in the hand. |
-| Tilt | The motion sensors steer the light, smoothed so it never jitters. |
+| Tilt | Turning the phone moves the light at once, like the sheen on a card in a wallet app. The gyroscope leads; phones without one use the accelerometer. Held still, the light eases back to the centre. |
 | Scroll | Surfaces travel under the light, so their glow and edges shift. |
 | Mouse and trackpad | On desktop and the web, a hovering pointer lights the surface under it (and fades out within 60 px of its edge). Other surfaces keep the ambient light. Touch never moves it. |
 

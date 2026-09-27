@@ -194,14 +194,107 @@ const List<Color> prismSpectrumDark = <Color>[
 double angleToward(Size size, Offset light) =>
     math.atan2(light.dy - size.height / 2, light.dx - size.width / 2);
 
-/// The rotation that turns Prism-bend's spectrum band to face [light],
-/// for a surface of [size].
+/// Where Prism-bend's spectrum band sits on the edge of a rounded rectangle.
 ///
-/// The band spans 22° to 110° of the sweep, so its middle (66°) is turned
-/// toward the light.
+/// A sweep gradient spreads colour by angle from the centre, so a band of
+/// fixed angle covers far more edge near the corners and short sides of a
+/// wide surface. The band is measured along the edge instead: it covers the
+/// same length wherever the light is, with its middle facing the light.
 @visibleForTesting
-double prismBandRotation(Size size, Offset light) =>
-    angleToward(size, light) - 66 * math.pi / 180;
+class PrismBand {
+  /// Measures the edge of a [size] rectangle with corners of [radius].
+  factory PrismBand(Size size, double radius) {
+    final Rect rect = Offset.zero & size;
+    final ui.PathMetric edge = (Path()
+          ..addRRect(RRect.fromRectAndRadius(rect, Radius.circular(radius))))
+        .computeMetrics()
+        .first;
+    final Offset centre = rect.center;
+    final List<double> angles = <double>[];
+    for (int i = 0; i <= _samples; i++) {
+      final Offset p =
+          edge.getTangentForOffset(edge.length * i / _samples)!.position -
+              centre;
+      final double a = math.atan2(p.dy, p.dx);
+      if (angles.isEmpty) {
+        angles.add(a);
+      } else {
+        // Unwrap, so the angles run on smoothly past ±π.
+        final double d = a - angles.last;
+        angles.add(angles.last + d - 2 * math.pi * (d / (2 * math.pi)).round());
+      }
+    }
+    // Sweep gradients turn clockwise; walk the edge the same way.
+    return PrismBand._(
+      edge.length,
+      angles.last > angles.first ? angles : angles.reversed.toList(),
+    );
+  }
+
+  PrismBand._(this.perimeter, this._angles);
+
+  static const int _samples = 240;
+
+  /// Where each colour sits along the band, from 0 to 1: a fade in, the
+  /// spectrum, and a fade out. The middle colour (at [_middle]) faces the
+  /// light.
+  static const List<double> _at = <double>[
+    0, 22 / 140, 44 / 140, 66 / 140, 88 / 140, 110 / 140, 1, //
+  ];
+  static const double _middle = 66 / 140;
+
+  /// The length of the edge.
+  final double perimeter;
+
+  /// The angle from the centre of evenly spaced points along the edge,
+  /// clockwise, and increasing.
+  final List<double> _angles;
+
+  /// The length of edge the band covers: about a quarter of it.
+  double get length => (perimeter * 0.24).clamp(110.0, 220.0);
+
+  /// The sweep rotation and gradient stops that place the band's colours on
+  /// the edge facing [light]. The stops end with 1, for the plain edge.
+  ({double rotation, List<double> stops}) toward(Size size, Offset light) {
+    final double middle = _stepAt(angleToward(size, light));
+    final double span = length / perimeter * _samples;
+    final List<double> angles = <double>[
+      for (final double f in _at) _angleAt(middle + (f - _middle) * span),
+    ];
+    final double start = angles.first;
+    return (
+      rotation: start,
+      stops: <double>[
+        for (final double a in angles) (a - start) / (2 * math.pi),
+        1,
+      ],
+    );
+  }
+
+  /// Where along the edge, in samples, a ray from the centre at [angle]
+  /// meets it.
+  double _stepAt(double angle) {
+    final double first = _angles.first;
+    final double a = first + (angle - first) % (2 * math.pi);
+    int i = 0;
+    while (i < _samples - 1 && _angles[i + 1] < a) {
+      i++;
+    }
+    final double lo = _angles[i];
+    final double hi = _angles[i + 1];
+    return i + (hi == lo ? 0 : ((a - lo) / (hi - lo)).clamp(0.0, 1.0));
+  }
+
+  /// The angle from the centre of the point [step] samples along the edge.
+  double _angleAt(double step) {
+    final int turns = (step / _samples).floor();
+    final double s = step - turns * _samples;
+    final int i = s.floor().clamp(0, _samples - 1);
+    final double lo = _angles[i];
+    final double hi = _angles[i + 1];
+    return lo + (hi - lo) * (s - i) + turns * 2 * math.pi;
+  }
+}
 
 /// A calm, clear surface whose edge splits the light into a soft spectrum
 /// on the side facing the light. Part of the Prism-bend style.
@@ -274,6 +367,10 @@ class _PrismPainter extends CustomPainter {
   final double edgeWidth;
   final bool dark;
 
+  // Measuring the edge is the costly part, so it's kept while the size holds.
+  PrismBand? _band;
+  Size? _bandSize;
+
   @override
   void paint(Canvas canvas, Size size) {
     if (size.isEmpty) return;
@@ -291,6 +388,15 @@ class _PrismPainter extends CustomPainter {
 
     final List<Color> s = dark ? prismSpectrumDark : prismSpectrumLight;
     final Color edge = dark ? const Color(0xFF2A2E37) : const Color(0xFFD8DCE4);
+    final Size edgeSize = rrect.deflate(edgeWidth / 2).outerRect.size;
+    if (_band == null || _bandSize != size) {
+      _bandSize = size;
+      _band = PrismBand(edgeSize, math.max(radius - edgeWidth / 2, 0));
+    }
+    final ({double rotation, List<double> stops}) band = _band!.toward(
+      edgeSize,
+      lightIn(size) - Offset(edgeWidth / 2, edgeWidth / 2),
+    );
     canvas.drawRRect(
       rrect.deflate(edgeWidth / 2),
       Paint()
@@ -298,11 +404,8 @@ class _PrismPainter extends CustomPainter {
         ..strokeWidth = edgeWidth
         ..shader = SweepGradient(
           colors: <Color>[edge, ...s, edge, edge],
-          stops: const <double>[
-            0, 22 / 360, 44 / 360, 66 / 360, 88 / 360, 110 / 360, 140 / 360,
-            1, //
-          ],
-          transform: GradientRotation(prismBandRotation(size, lightIn(size))),
+          stops: band.stops,
+          transform: GradientRotation(band.rotation),
         ).createShader(rect),
     );
   }

@@ -8,6 +8,7 @@ import 'package:flutter/widgets.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 
 import 'platform_stub.dart' if (dart.library.io) 'platform_io.dart';
+import 'tilt.dart';
 
 /// The position of the light that every Luminism surface shares.
 ///
@@ -74,7 +75,8 @@ class LuminismLightController extends ChangeNotifier {
 /// light source.
 ///
 /// The light sits above the screen and drifts slowly on its own, like a
-/// phone held in the hand, and tilting the phone steers it. Surfaces move
+/// phone held in the hand, and turning the phone steers it at once, led by
+/// the gyroscope. Surfaces move
 /// under it as they scroll. On desktop and the web, a hovering mouse or
 /// trackpad lights the surface under it, while the others keep the ambient
 /// light; fingers never move it. With "reduce
@@ -145,12 +147,13 @@ class _LuminismLightState extends State<LuminismLight>
   late LuminismLightController _controller =
       widget.controller ?? LuminismLightController();
   late final Ticker _ticker = createTicker(_tick);
-  StreamSubscription<AccelerometerEvent>? _sensor;
+  StreamSubscription<GyroscopeEvent>? _gyroscope;
+  StreamSubscription<AccelerometerEvent>? _accelerometer;
+  final Stopwatch _clock = Stopwatch()..start();
+  TiltTracker _tracker = TiltTracker();
   Duration _last = Duration.zero;
   double _t = 0;
   bool _reduceMotion = false;
-  Offset? _gravity;
-  Offset? _baseline;
 
   bool get _sensorsSupported =>
       !isFlutterTest &&
@@ -190,7 +193,8 @@ class _LuminismLightState extends State<LuminismLight>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _sensor?.cancel();
+    _gyroscope?.cancel();
+    _accelerometer?.cancel();
     _ticker.dispose();
     _controller._wake = null;
     if (widget.controller == null) _controller.dispose();
@@ -200,38 +204,45 @@ class _LuminismLightState extends State<LuminismLight>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Sensors cost battery; only listen while the app is on screen.
-    if (state == AppLifecycleState.resumed) {
-      _sensor?.resume();
-    } else if (_sensor != null && !_sensor!.isPaused) {
-      _sensor!.pause();
+    for (final StreamSubscription<Object>? s in <StreamSubscription<Object>?>[
+      _gyroscope,
+      _accelerometer
+    ]) {
+      if (state == AppLifecycleState.resumed) {
+        if (s != null && s.isPaused) s.resume();
+      } else if (s != null && !s.isPaused) {
+        s.pause();
+      }
     }
   }
 
   void _syncSensors() {
     final bool want = widget.sensors && _sensorsSupported;
-    if (want && _sensor == null) {
-      _sensor = accelerometerEventStream(
+    if (want && _accelerometer == null) {
+      // Phones without a gyroscope report an error; the accelerometer then
+      // steers the light on its own.
+      _gyroscope = gyroscopeEventStream(
+        samplingPeriod: SensorInterval.gameInterval,
+      ).listen(_onGyroscope, onError: (Object _) {}, cancelOnError: false);
+      _accelerometer = accelerometerEventStream(
         samplingPeriod: SensorInterval.gameInterval,
       ).listen(_onAccelerometer, onError: (Object _) {}, cancelOnError: false);
-    } else if (!want && _sensor != null) {
-      _sensor!.cancel();
-      _sensor = null;
-      _gravity = null;
-      _baseline = null;
+    } else if (!want && _accelerometer != null) {
+      _gyroscope?.cancel();
+      _accelerometer?.cancel();
+      _gyroscope = null;
+      _accelerometer = null;
+      _tracker = TiltTracker();
     }
   }
 
-  // Gravity, smoothed, compared with a baseline that slowly follows it: the
-  // light responds to tilting, not to how you happen to hold the phone.
+  void _onGyroscope(GyroscopeEvent e) {
+    _controller.tilt = _tracker.gyroscope(e.x, e.y, _clock.elapsed);
+  }
+
   void _onAccelerometer(AccelerometerEvent e) {
-    final Offset a = Offset(e.x, e.y);
-    final Offset g = _gravity == null ? a : _gravity! + (a - _gravity!) * 0.15;
-    final Offset b =
-        _baseline == null ? g : _baseline! + (g - _baseline!) * 0.004;
-    _gravity = g;
-    _baseline = b;
-    final Offset d = g - b;
-    _controller.tilt = Offset(d.dx / 3.5, -d.dy / 3.5);
+    final Offset? tilt = _tracker.accelerometer(e.x, e.y, _clock.elapsed);
+    if (tilt != null) _controller.tilt = tilt;
   }
 
   void _wake() {
@@ -249,8 +260,9 @@ class _LuminismLightState extends State<LuminismLight>
     final bool drifting = widget.drift && !_reduceMotion;
     if (drifting) _t += dt * widget.driftSpeed;
 
-    // Low-pass filter, so tilt never jitters.
-    final double k = _reduceMotion ? 1 : 1 - math.exp(-dt * 8);
+    // A light low-pass filter: smooth between sensor readings, but quick
+    // enough that the light keeps up with a turning phone.
+    final double k = _reduceMotion ? 1 : 1 - math.exp(-dt * 20);
     c._tilt += (c._tiltTarget - c._tilt) * k;
 
     // A hovering pointer leads nearby surfaces: quickly on arrival, gently

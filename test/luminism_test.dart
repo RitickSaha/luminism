@@ -5,7 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:luminism/luminism.dart';
 import 'package:luminism/src/lit.dart';
-import 'package:luminism/src/surface.dart' show prismBandRotation;
+import 'package:luminism/src/surface.dart' show PrismBand;
+import 'package:luminism/src/tilt.dart';
 
 Widget _app({
   required Widget child,
@@ -284,19 +285,139 @@ void main() {
     });
   });
 
-  group('prism band', () {
-    const Size size = Size(200, 100);
+  group('tilt tracker', () {
+    const Duration frame = Duration(milliseconds: 20);
 
-    test('faces a light to the right', () {
-      expect(prismBandRotation(size, const Offset(1000, 50)),
-          closeTo(-66 * math.pi / 180, 1e-9));
+    test('follows the gyroscope at once', () {
+      final TiltTracker t = TiltTracker();
+      Duration now = Duration.zero;
+      t.gyroscope(0, 0, now);
+      // Turn the right edge away by half a full turn in 0.1 s.
+      Offset tilt = Offset.zero;
+      for (int i = 0; i < 5; i++) {
+        now += frame;
+        tilt = t.gyroscope(0, TiltTracker.fullTurn / 2 / 0.1, now);
+      }
+      expect(tilt.dx, closeTo(-0.5, 0.02));
+      expect(tilt.dy, 0);
     });
 
-    test('faces a light above', () {
+    test('stops at a full tilt and turns back at once', () {
+      final TiltTracker t = TiltTracker();
+      Duration now = Duration.zero;
+      t.gyroscope(0, 0, now);
+      for (int i = 0; i < 20; i++) {
+        now += frame;
+        t.gyroscope(3, 0, now);
+      }
+      now += frame;
+      final Offset tilt = t.gyroscope(-3, 0, now);
+      expect(tilt.dy, closeTo(-1 + 3 * 0.02 / TiltTracker.fullTurn, 0.02));
+    });
+
+    test('eases back to the centre when held still', () {
+      final TiltTracker t = TiltTracker();
+      Duration now = Duration.zero;
+      t.gyroscope(0, 0, now);
+      now += frame;
+      final Offset turned = t.gyroscope(0, 7, now);
+      Offset tilt = turned;
+      for (int i = 0; i < 1000; i++) {
+        now += frame;
+        tilt = t.gyroscope(0, 0, now);
+      }
+      expect(turned.dx, lessThan(-0.4));
+      expect(tilt.dx.abs(), lessThan(0.01));
+    });
+
+    test('ignores a steady gyroscope bias', () {
+      final TiltTracker t = TiltTracker();
+      Duration now = Duration.zero;
+      Offset tilt = Offset.zero;
+      for (int i = 0; i < 1500; i++) {
+        tilt = t.gyroscope(0.01, 0.01, now);
+        now += frame;
+      }
+      expect(tilt.distance, lessThan(0.02));
+    });
+
+    test('falls back to the accelerometer without a gyroscope', () {
+      final TiltTracker t = TiltTracker();
+      Duration now = Duration.zero;
+      expect(t.accelerometer(0, 0, now), Offset.zero);
+      Offset? tilt;
+      for (int i = 0; i < 20; i++) {
+        now += frame;
+        tilt = t.accelerometer(-1, 0, now);
+      }
+      expect(tilt!.dx, lessThan(-0.3));
+
+      t.gyroscope(0, 0, now);
+      expect(t.accelerometer(-1, 0, now + frame), isNull,
+          reason: 'the gyroscope leads while it is heard from');
       expect(
-        prismBandRotation(size, const Offset(100, -1000)),
-        closeTo(-math.pi / 2 - 66 * math.pi / 180, 1e-9),
+          t.accelerometer(-1, 0, now + const Duration(seconds: 1)), isNotNull);
+    });
+  });
+
+  group('prism band', () {
+    const Size wide = Size(350, 100);
+    final PrismBand band = PrismBand(wide, 22);
+    const Offset right = Offset(2000, 50);
+    const Offset above = Offset(175, -2000);
+    const Offset corner = Offset(2000, -2000);
+
+    // The point on the edge a ray from the centre at [angle] meets.
+    Offset edgeAt(double angle) {
+      final Offset d = Offset(math.cos(angle), math.sin(angle));
+      final double t = math.min(
+        (wide.width / 2) / d.dx.abs().clamp(1e-9, 1),
+        (wide.height / 2) / d.dy.abs().clamp(1e-9, 1),
       );
+      return wide.center(Offset.zero) + d * t;
+    }
+
+    // The straight-line length the band covers, ignoring rounded corners.
+    double reach(Offset light) {
+      final r = band.toward(wide, light);
+      final List<double> stops = r.stops;
+      Offset? last;
+      double length = 0;
+      for (int i = 0; i <= 60; i++) {
+        final double a =
+            r.rotation + 2 * math.pi * stops[stops.length - 2] * i / 60;
+        final Offset p = edgeAt(a);
+        if (last != null) length += (p - last).distance;
+        last = p;
+      }
+      return length;
+    }
+
+    test('covers about the same length of edge wherever the light is', () {
+      final double top = reach(above);
+      expect(top, closeTo(band.length, band.length * 0.1));
+      expect(reach(right), closeTo(top, top * 0.12));
+      expect(reach(corner), closeTo(top, top * 0.12));
+    });
+
+    test('faces the light with its middle colour', () {
+      for (final Offset light in <Offset>[right, above, corner]) {
+        final r = band.toward(wide, light);
+        final double middle = r.rotation + 2 * math.pi * r.stops[3];
+        final double toward = math.atan2(light.dy - 50, light.dx - 175);
+        final double d = (middle - toward) % (2 * math.pi);
+        expect(math.min(d, 2 * math.pi - d), lessThan(0.02));
+      }
+    });
+
+    test('has increasing stops that end with the plain edge', () {
+      final List<double> stops = band.toward(wide, corner).stops;
+      for (int i = 1; i < stops.length; i++) {
+        expect(stops[i], greaterThanOrEqualTo(stops[i - 1]));
+      }
+      expect(stops.first, 0);
+      expect(stops.last, 1);
+      expect(stops[stops.length - 2], lessThan(1));
     });
   });
 }
