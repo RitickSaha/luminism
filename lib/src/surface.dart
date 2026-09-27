@@ -137,9 +137,9 @@ class _LuminPainter extends CustomPainter {
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 16),
     );
 
-    // The body glows from within: one broad, soft wash of light, sized by
-    // the surface's longest side so thin surfaces don't get a pinpoint.
-    final double reach = math.max(size.longestSide * 1.25, 240);
+    // The body glows from within: one soft wash of light, sized by the
+    // surface's longest side so thin surfaces don't get a pinpoint.
+    final double reach = math.max(size.longestSide * 0.94, 180);
     final List<Color> body = bright
         ? <Color>[_c(1, 0.72, 1), _c(0.95, 0.58, 1)]
         : dark

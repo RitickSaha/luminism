@@ -11,9 +11,9 @@ import 'platform_stub.dart' if (dart.library.io) 'platform_io.dart';
 
 /// The position of the light that every Luminism surface shares.
 ///
-/// Read [position] to find the light, and set [tilt] to steer it by hand
-/// (for simulators, demos and tests). A [LuminismLight] drives the
-/// controller.
+/// Read [position] to find the ambient light, [pointer] and [pointerWeight]
+/// to find a hovering mouse, and set [tilt] to steer the light by hand (for
+/// simulators, demos and tests). A [LuminismLight] drives the controller.
 class LuminismLightController extends ChangeNotifier {
   Offset _position = Offset.zero;
   Offset _tiltTarget = Offset.zero;
@@ -21,10 +21,23 @@ class LuminismLightController extends ChangeNotifier {
   Offset? _hover;
   Offset? _lastHover;
   double _hoverWeight = 0;
+  Offset? _notifiedPointer;
+  double _notifiedWeight = 0;
   VoidCallback? _wake;
 
-  /// Where the light is, in global (screen) coordinates.
+  /// Where the ambient light is, from drift and tilt, in global (screen)
+  /// coordinates.
   Offset get position => _position;
+
+  /// Where a hovering mouse or trackpad is, in global coordinates, or null.
+  ///
+  /// Surfaces near the pointer take their light from it, weighted by
+  /// [pointerWeight]; surfaces further away keep the ambient [position].
+  Offset? get pointer => _hoverWeight > 0 ? (_hover ?? _lastHover) : null;
+
+  /// How strongly the pointer leads the light, from 0 to 1. It eases in when
+  /// a pointer arrives and out when it leaves.
+  double get pointerWeight => _hoverWeight;
 
   /// How far the phone is tilted, from -1 to 1 on each axis.
   ///
@@ -41,10 +54,19 @@ class LuminismLightController extends ChangeNotifier {
     _wake?.call();
   }
 
-  void _setPosition(Offset value) {
-    if ((value - _position).distanceSquared < 0.0001) return;
-    _position = value;
-    notifyListeners();
+  void _update(Offset ambient) {
+    bool changed = false;
+    if ((ambient - _position).distanceSquared >= 0.0001) {
+      _position = ambient;
+      changed = true;
+    }
+    final Offset? p = pointer;
+    if (p != _notifiedPointer || _hoverWeight != _notifiedWeight) {
+      _notifiedPointer = p;
+      _notifiedWeight = _hoverWeight;
+      changed = true;
+    }
+    if (changed) notifyListeners();
   }
 }
 
@@ -53,8 +75,9 @@ class LuminismLightController extends ChangeNotifier {
 ///
 /// The light sits above the screen and drifts slowly on its own, like a
 /// phone held in the hand, and tilting the phone steers it. Surfaces move
-/// under it as they scroll. On desktop and the web, a mouse or trackpad
-/// leads the light while it hovers; fingers never move it. With "reduce
+/// under it as they scroll. On desktop and the web, a hovering mouse or
+/// trackpad lights the surface under it, while the others keep the ambient
+/// light; fingers never move it. With "reduce
 /// motion" on, the light rests near the top of the screen.
 ///
 /// Place it inside your app so it covers every screen:
@@ -104,7 +127,7 @@ class LuminismLight extends StatefulWidget {
   /// width and height.
   final Offset tiltStrength;
 
-  /// Whether a hovering mouse or trackpad leads the light.
+  /// Whether a hovering mouse or trackpad lights the surface under it.
   ///
   /// Only hover moves the light, so touch screens are never affected.
   final bool followPointer;
@@ -230,7 +253,8 @@ class _LuminismLightState extends State<LuminismLight>
     final double k = _reduceMotion ? 1 : 1 - math.exp(-dt * 8);
     c._tilt += (c._tiltTarget - c._tilt) * k;
 
-    // A hovering pointer leads the light: quickly on arrival, gently on exit.
+    // A hovering pointer leads nearby surfaces: quickly on arrival, gently
+    // on exit.
     final double hoverTarget = c._hover != null ? 1 : 0;
     final double hk =
         _reduceMotion ? 1 : 1 - math.exp(-dt * (c._hover != null ? 10 : 3));
@@ -247,15 +271,10 @@ class _LuminismLightState extends State<LuminismLight>
           drifting ? widget.driftAmplitude.dx * math.cos(_t) : 0;
       final double driftY =
           drifting ? widget.driftAmplitude.dy * math.sin(_t * 1.3) : 0;
-      Offset light = box.localToGlobal(Offset(
+      c._update(box.localToGlobal(Offset(
         size.width * (0.5 + driftX + widget.tiltStrength.dx * c._tilt.dx),
         size.height * (0.3 + driftY + widget.tiltStrength.dy * c._tilt.dy),
-      ));
-      final Offset? hover = c._hover ?? c._lastHover;
-      if (hover != null && c._hoverWeight > 0) {
-        light = Offset.lerp(light, hover, c._hoverWeight)!;
-      }
-      c._setPosition(light);
+      )));
     }
 
     final bool settled = !drifting &&

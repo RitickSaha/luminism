@@ -21,7 +21,7 @@ it:
 | Drift | The light moves slowly on its own, like a phone held in the hand. |
 | Tilt | The motion sensors steer the light, smoothed so it never jitters. |
 | Scroll | Surfaces travel under the light, so their glow and edges shift. |
-| Mouse and trackpad | On desktop and the web, a hovering pointer leads the light. Touch never moves it. |
+| Mouse and trackpad | On desktop and the web, a hovering pointer lights the surface under it (and fades out within 60 px of its edge). Other surfaces keep the ambient light. Touch never moves it. |
 
 With "reduce motion" on, the light rests at the top of the screen.
 
@@ -90,7 +90,7 @@ whether they're on.
 | `sensors` | `true` | Whether the motion sensors steer it. Used on Android, iOS and the web; never under `flutter test`. |
 | `driftSpeed`, `driftAmplitude` | `0.5`, `(0.32, 0.2)` | How fast and how far it drifts. |
 | `tiltStrength` | `(0.45, 0.35)` | How far a full tilt moves it. |
-| `followPointer` | `true` | Whether a hovering mouse or trackpad leads it. |
+| `followPointer` | `true` | Whether a hovering mouse or trackpad lights the surface under it. |
 | `controller` | | A `LuminismLightController` to read the light or steer it by hand. |
 
 Steer the light yourself, for example on a simulator without a gyroscope:

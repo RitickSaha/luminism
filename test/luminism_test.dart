@@ -4,6 +4,7 @@ import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:luminism/luminism.dart';
+import 'package:luminism/src/lit.dart';
 import 'package:luminism/src/surface.dart' show prismBandRotation;
 
 Widget _app({
@@ -148,28 +149,54 @@ void main() {
   });
 
   group('pointer', () {
-    testWidgets('a hovering mouse leads the light, then lets go',
-        (tester) async {
+    test('influence is full inside and fades out past the edge', () {
+      const Size size = Size(200, 100);
+      expect(pointerInfluence(const Offset(100, 50), size), 1);
+      expect(pointerInfluence(const Offset(-10, 50), size), greaterThan(0.9));
+      expect(pointerInfluence(const Offset(-30, 50), size), closeTo(0.5, 0.01));
+      expect(pointerInfluence(const Offset(-60, 50), size), 0);
+      expect(pointerInfluence(const Offset(300, 300), size), 0);
+    });
+
+    testWidgets('lights only the surface under it', (tester) async {
       final LuminismLightController light = LuminismLightController();
-      await tester.pumpWidget(
-          _app(controller: light, drift: false, child: const SizedBox()));
+      final GlobalKey<_ProbeState> near = GlobalKey<_ProbeState>();
+      final GlobalKey<_ProbeState> far = GlobalKey<_ProbeState>();
+      await tester.pumpWidget(_app(
+        controller: light,
+        drift: false,
+        child: Column(mainAxisSize: MainAxisSize.min, children: <Widget>[
+          _Probe(key: near),
+          const SizedBox(height: 200),
+          _Probe(key: far),
+        ]),
+      ));
       await tester.pump(const Duration(milliseconds: 16));
-      final Offset rest = light.position;
+      final Offset ambient = light.position;
+      final Offset target = tester.getCenter(find.byKey(near));
 
       final TestGesture mouse =
           await tester.createGesture(kind: PointerDeviceKind.mouse);
-      await mouse.addPointer(location: const Offset(700, 500));
-      await mouse.moveTo(const Offset(700, 500));
+      await mouse.addPointer(location: target);
+      await mouse.moveTo(target);
       for (int i = 0; i < 40; i++) {
         await tester.pump(const Duration(milliseconds: 16));
       }
-      expect((light.position - const Offset(700, 500)).distance, lessThan(2));
+      // The ambient light stays put; only the nearby surface follows the mouse.
+      expect(light.position, ambient);
+      expect(light.pointerWeight, closeTo(1, 0.01));
+      expect(near.currentState!.lightGlobal(),
+          offsetMoreOrLessEquals(target, epsilon: 1));
+      expect(far.currentState!.lightGlobal(),
+          offsetMoreOrLessEquals(ambient, epsilon: 1));
 
       await mouse.removePointer();
       for (int i = 0; i < 150; i++) {
         await tester.pump(const Duration(milliseconds: 16));
       }
-      expect((light.position - rest).distance, lessThan(2));
+      expect(light.pointer, isNull);
+      expect(near.currentState!.lightGlobal(),
+          offsetMoreOrLessEquals(ambient, epsilon: 1));
     });
 
     testWidgets('can be turned off', (tester) async {
@@ -184,13 +211,12 @@ void main() {
         home: const SizedBox(),
       ));
       await tester.pump(const Duration(milliseconds: 16));
-      final Offset rest = light.position;
       final TestGesture mouse =
           await tester.createGesture(kind: PointerDeviceKind.mouse);
       await mouse.addPointer(location: const Offset(700, 500));
       await mouse.moveTo(const Offset(700, 500));
       await tester.pump(const Duration(milliseconds: 300));
-      expect(light.position, rest);
+      expect(light.pointer, isNull);
       await mouse.removePointer();
     });
   });
@@ -273,4 +299,22 @@ void main() {
       );
     });
   });
+}
+
+/// A 200 × 100 box that reports where it sees the light.
+class _Probe extends StatefulWidget {
+  const _Probe({super.key});
+
+  @override
+  State<_Probe> createState() => _ProbeState();
+}
+
+class _ProbeState extends State<_Probe> with LitState<_Probe> {
+  Offset lightGlobal() {
+    final RenderBox box = context.findRenderObject()! as RenderBox;
+    return box.localToGlobal(lightIn(box.size));
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox(width: 200, height: 100);
 }
